@@ -347,49 +347,65 @@ function Array:__pairs() return ipairs(self:val()) end
 
 function Array:sorted() return jsond.sorted(self) end
 
-function Array:sort(comp)
-  local ncomp
-  if comp then
-    ncomp = function(a, b)
-      return comp(jsond.value(a), jsond.value(b))
-    end
-  end
-  table.sort(self:val(), ncomp)
+local function default_comp(a, b)
+  return a < b
 end
 
-local function copy_array(obj)
-  local res = {}
-  for i, v in ipairs(obj:val()) do
-    res[i] = v
+local function comp_values(comp)
+  comp = comp or default_comp
+  return function(a, b)
+    return comp(jsond.value(a), jsond.value(b))
   end
-  return Array:new(obj:range(), res)
+end
+
+local function copy_array(arr)
+  local res = {}
+  for i = 1, #arr do
+    res[i] = arr[i]
+  end
+  return res
+end
+
+local function object_pairs(obj)
+  local list = {}
+  for k, v in pairs(obj) do
+    table.insert(list, { k, v })
+  end
+  return list
+end
+
+function Array:sort(comp)
+  table.sort(self:val(), comp_values(comp))
+end
+
+local function pair_iter(pairs)
+  local i = 0
+  return function()
+    i = i + 1
+    local pair = pairs[i]
+    if pair then
+      return pair[1], pair[2]
+    end
+    return nil, nil
+  end
 end
 
 function jsond.sorted(obj, comp)
   local typ = jsond.type(obj)
+  comp = comp_values(comp)
 
+  local list
   if typ == "array" then
-    -- vanilla Lua sort
-    obj = copy_array(obj)
-    obj:sort(comp)
-    return obj
+    -- Convert to array and sort
+    list = copy_array(obj)
+    table.sort(list, comp)
+    return ipairs(list)
   elseif typ == "object" then
-    -- a "sorted" object is an array of pairs of keys and values
-    local ncomp
-    if comp then
-      ncomp = function(a, b)
-        -- just sort the key part of the pair
-        return comp(jsond.value(a[1]), jsond.value(b[1]))
-      end
-    end
-
-    local pairs_array = {}
-    for k, v in pairs(obj) do
-      table.insert(pairs_array, { k, v })
-    end
-
-    table.sort(pairs_array, ncomp)
-    return pairs_array
+    list = object_pairs(obj)
+    table.sort(list, function(a, b)
+      return comp(a[1], b[1])
+    end)
+    return pair_iter(list)
   else
     error("Cannot sort object of type " .. typ)
   end

@@ -4,14 +4,16 @@ This is a Lua library that implements JSON decoding while preserving Wireshark T
 This allows you to use JSON fields as dissector fields, allowing the UI to maintain a reference to
 the original packet data.
 
+Status: This is under active development and unstable.
+
 # Usage
 
 ```lua
-test_data = ByteArray.new('{"num_field": 42, "obj_field": {"obj_num": 43}, "array_field": ["one", "two"]}')
-test_tvbr = test_data.tvb("Test Data")()
+tvb  = ByteArray.new('{"num_field": 42, "obj_field": {"obj_num": 43}, "array_field": ["one", "two"]}', true)
+tvbr = test_data:tvb()()
 
 jsond     = require("jsond")
-data      = jsond.decode(test_tvbr)  -- a Value
+data      = jsond.decode(tvbr)  -- a Value
 
 tree:add(field.num_field, data.num_field())  -- unpacks into (TvbRange, number)
 tree:add(field.obj_num, data["obj_field"]["obj_num"]())
@@ -36,11 +38,31 @@ and value.
 Decodes the JSON data contained in `tvbr`.
 Returns a `Value` or raises an error.
 
+```lua
+buf  = ByteArray.new("42", true):tvb()()
+data = jsond.decode(buf)  -- Number
+data:range() == buf(0, 2) -- true
+data:val()   == 42        -- true
+```
+
+```lua
+buf  = ByteArray.new("[42]", true):tvb()()
+data = jsond.decode(buf)     -- Array
+data[1]:range() == buf(1, 2) -- true
+data[1]:val()   == 42        -- true
+```
+
 ### `jsond.range(data)`
 
 Returns the [`TvbRange`](https://www.wireshark.org/docs/wsdg_html_chunked/lua_module_Tvb.html#lua_class_TvbRange) that was the source for the `Value` held by `data`.
 This will work for all classes in the tree returned by `jsond.decode`.
 Some classes also implement a `value:range()` method as a convenience.
+
+```lua
+buf = ByteArray.new("42", true):tvb()()
+data = jsond.decode(buf)       -- Number
+jsond.range(data) == buf(0, 2) -- true
+```
 
 ### `jsond.value(data)`
 
@@ -50,11 +72,17 @@ Most classes also implement a `value:val()` method as a convenience.
 
 Note that the aggregated types `Array` and `Object` are represented by a Lua table. An `Array`'s elements will be `Value` instances, as are an `Object's` keys and values.
 
+```lua
+buf = ByteArray.new("42", true):tvb()()
+data = jsond.decode(buf)  -- Number
+jsond.value(data) == 42   -- true
+```
+
 ---
 
 ### `jsond.bool(data)`
 
-Returns the Lua truthiness of the Lua value of data. Equivalent to `not not jsond.value(data)`.
+Returns the Lua truthiness of the Lua value of `data`. Equivalent to `not not jsond.value(data)`.
 Most classes also implement a `value:bool()` method as a convenience.
 
 ### `jsond.is_zero(data)`
@@ -62,17 +90,51 @@ Most classes also implement a `value:bool()` method as a convenience.
 Returns true if `data` is a number == 0, a false boolean, or an empty string, array, or object.
 Most classes also implement a `value:nonzero()` method as a convenience, equivalent to `not jsond.is_zero(data)`.
 
+```lua
+buf = ByteArray.new('""', true):tvb()()
+data = jsond.decode(buf)  -- String
+jsond.is_zero(data)       -- true
+```
+
 ### `jsond.sorted(data [, comp])`
 
-If `data` is an `Array`, returns a copy with its `Value` elements sorted according to comp, which will operate on the underlying Lua type for each `Value`. Equivalent to `array:sorted(comp)`.
+Returns an iterator over a sorted copy of `data`, which must be an `Array` or `Object`.
 
-If `data` is an `Object`, returns a Lua array of key-value pairs.  Both the key and value in each pair are `Value` instances, and the pair itself is a Lua array. The pairs will be sorted by key.  If `comp` is provided, it will receive each key's underlying Lua value.
+For an `Array`, this is equivalent to sorting its elements according to how the underlying Lua values compare to each other.  If `comp` is provided, it will be provided these underlying values.
+
+For an `Object`, the iterator yields keys and values, sorted by key.  If `comp` is provided, it will be provided the Lua values for each key.  The values yielded by the iterator will be `Value`s.
+
+```lua
+buf = ByteArray.new('{"b": 2, "a": 1}', true):tvb()()
+data = jsond.decode(buf)  -- Object
+for k, v in jsond.sorted(data)
+  print(i, v)
+end
+-- a 1
+-- b 2
+```
+
+```lua
+buf = ByteArray.new('["b", "a"]', true):tvb()()
+data = jsond.decode(buf)  -- Array
+for i, v in jsond.sorted(data)
+  print(i, v)
+end
+-- 1 a
+-- 2 b
+```
 
 ### `jsond.type(data)`
 
 Returns the JSON type held by `data`.
 This will be one of "string", "number", "boolean", "array", "object", "null",
 or `nil` if data isn't a `Value`.
+
+```lua
+buf = ByteArray("42"):tvb()()
+data = jsond.decode(buf)
+jsond.type(data)  -- "number"
+```
 
 ## Classes
 
@@ -135,8 +197,9 @@ A `BasicValue` is the superclass for `Array`, `Boolean`, `Nil`, `Number`, and `S
 
 A `BasicValue` has methods allowing for comparisons against other `BasicValues` as well as standard Lua types.  For example:
 
-```
-val = jsond.decode("42")
+```lua
+buf = ByteArray.new("42", true):tvb()()
+val = jsond.decode(buf)
 val == 42    -- false (val is a Value, not a number)
 val:eq(42)   -- true
 ```
@@ -234,6 +297,14 @@ A `String` holds a string value.
 
 Returns one or more `Number` instances representing the Lua code point(s) for the character(s) at index `i` (defaults to 1) through `j`, similar to the standard `string.byte` function.
 
+```lua
+buf = ByteArray.new('"foo"'):tvb()()
+s = jsond.decode(buf)
+b = s:byte(2)           -- Number
+b:range() == buf(1, 1)  -- true
+b:val()   == 111        -- true (ord("o"))
+```
+
 #### `s:ether()`
 
 Equivalent to `Address.ether(jsond.value(s))` or `jsond.range(s):ether()`.
@@ -258,6 +329,14 @@ If string contains numeric digits, returns a `Number`, using the optional base.
 
 Returns a `String` containing the substring starting from `first` (index 1) to `last`,
 inclusive, similar to Lua's standard string `:sub()` method.
+
+```lua
+buf = ByteArray.new('"foobar"'):tvb()()
+s = jsond.decode(buf)
+b = s:sub(4, 6)         -- String
+b:range() == buf(4, 3)  -- true
+b:val()   == "bar"      -- true 
+```
 
 #### `s:upper()`
 
@@ -301,12 +380,12 @@ An `Array` supports `array[0]`-style indexing.
 
 #### `a:sorted([comp])`
 
-Returns a copy of `a` sorted according to `array.sort`.
+Returns an iterator over the sorted values of `a`.  The `comp` comparator will be provided the underlying Lua values for each element.
 
 #### `a:sort([comp])`
 
 Performs an in-place sort of the array's `Value`s.
-The `comp` comparison function works like `table.sort`'s and will receive each `Value`'s underlying Lua value.
+The `comp` comparator will be provided the underlying Lua values for each element.
 
 ### `Object` (`Value`)
 
@@ -315,17 +394,18 @@ Value
 ├── __call()
 ├── __string()
 └── Object
-    ├── __pairs()
+    ├── __pairs()  -- String, Value
     └── __index()  -- Value
 ```
 
-An `Object` contains a mapping from `String` keys to `Value`s.  It contains no methods in order to indexing of the underlying object's properties without risk of conflict.
+An `Object` contains a mapping from `String` keys to `Value`s.  It contains no methods in order to allow indexing of the underlying object's properties without risk of conflict.
 
 Indexing supports indexing by `String`, or a Lua string.  These references are equivalent:
 
-```
-obj = json.decode(text)      -- {"field": "value"}
-
-field = next(obj)[1]         -- String "field"
+```lua
+buf = ByteArray.new('{"field": "value"}', true):tvb()()
+obj = json.decode(buf)      -- Object
+field = next(obj)[1]        -- String "field"
 obj[field] == obj["field"]  -- true
+obj[field] == obj.field     -- true
 ```
