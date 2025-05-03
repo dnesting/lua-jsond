@@ -9,16 +9,18 @@ Status: This is under active development and unstable.
 # Usage
 
 ```lua
-tvb  = ByteArray.new('{"num_field": 42, "obj_field": {"obj_num": 43}, "array_field": ["one", "two"]}', true)
-tvbr = test_data:tvb()()
+jsond = require("jsond")
+
+json = '{"num_field": 42, "obj_field": {"obj_num": 43}, "array_field": ["one", "two"]}'
+tvb_range = ByteArray.new(json, true):tvb()()
 
 jsond     = require("jsond")
-data      = jsond.decode(tvbr)  -- a Value
+data      = jsond.decode(tvb_range)  -- a Value
 
 tree:add(field.num_field, data.num_field())  -- unpacks into (TvbRange, number)
-tree:add(field.obj_num, data["obj_field"]["obj_num"]())
+tree:add(field.obj_num, data.obj_field.obj_num())
 
-for _, val in ipairs(data.obj_field.array_field) do
+for _, val in ipairs(data.array_field) do
   local first_letter = val:sub(1, 1)  -- "o", "t" Values
   tree:add(field.first_letters, first_letter())
 end
