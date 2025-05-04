@@ -21,7 +21,6 @@
 -- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
---
 
 -- This is an implementation of a JSON decoder that retains TvbRanges.
 -- The resulting decoded values are callables that return
@@ -191,10 +190,17 @@ function String:__len() return #self:val() end
 
 function String:byte(i, j)
   local res = {}
+  if not i then
+    i = 1
+  end
+  local start = i
+  if not j then
+    j = i
+  end
   while i <= j do
     -- use self:sub() since getting the range right can be tricky
     local ch = self:sub(i, i)
-    res[i] = Number:new(ch:range(), ch:val():byte())
+    res[start - i + 1] = Number:new(ch:range(), ch:val():byte())
     i = i + 1
   end
   return table.unpack(res)
@@ -217,28 +223,41 @@ function String:number(base)
   return nil
 end
 
+local function parse_string_partial(tvbr, str, i, max_len)
+  local s, after = parse_string0(tvbr, str, i, max_len)
+  after = after - 1 -- trailing "
+  local over = #s - max_len
+  if over > 0 then
+    s = s:sub(1, max_len - over)
+    after = after - over
+  end
+  return s, after
+end
+
 function String:sub(str_start, str_end)
   local range = self:range()
-  local rng_start = 0
+  local str = range:raw()
+  local raw_start = 1
 
   if str_start > 1 then
     -- Partially parse range until we have length str_start
     -- to account for ranges that contain escaped characters
     -- that consume more than one byte for one character.
-    _, rng_start = parse_string0(range, 0, str_start)
+    _, raw_start = parse_string_partial(range, str, 1, str_start - 1)
   end
 
   -- Partially parse range until we have accumulated enough characters
   -- to satisfy str_end.
-  local _, rng_after = parse_string0(range, rng_start, str_end - str_start + 1)
-  return String:new(
-    range(rng_start, rng_after - 1),
-    self:val():sub(str_start, str_end))
+  local _, raw_after = parse_string_partial(range, str, raw_start - 1, str_end - str_start + 1)
+  local rng_size = raw_after - raw_start
+  local rng = range(raw_start - 1, rng_size)
+  local s = self:val():sub(str_start, str_end)
+  return String:new(rng, s)
 end
 
 function String:upper() return String:new(self:range(), self:val():upper()) end
 
--- Don't inherit from Simple since we want any indexing to
+-- Don't inherit from BasicValue since we want any indexing to
 -- be passed to the underlying table value.  This means no
 -- object methods.
 local Object = class(Value)
@@ -351,11 +370,15 @@ local function default_comp(a, b)
   return a < b
 end
 
-local function comp_values(comp)
+local function make_compare_values(comp)
   comp = comp or default_comp
   return function(a, b)
     return comp(jsond.value(a), jsond.value(b))
   end
+end
+
+function Array:sort(comp)
+  table.sort(self:val(), make_compare_values(comp))
 end
 
 local function copy_array(arr)
@@ -374,10 +397,6 @@ local function object_pairs(obj)
   return list
 end
 
-function Array:sort(comp)
-  table.sort(self:val(), comp_values(comp))
-end
-
 local function pair_iter(pairs)
   local i = 0
   return function()
@@ -392,11 +411,10 @@ end
 
 function jsond.sorted(obj, comp)
   local typ = jsond.type(obj)
-  comp = comp_values(comp)
+  comp = make_compare_values(comp)
 
   local list
   if typ == "array" then
-    -- Convert to array and sort
     list = copy_array(obj)
     table.sort(list, comp)
     return ipairs(list)
@@ -464,7 +482,7 @@ local function decode_error(str, idx, msg)
       col_count = 1
     end
   end
-  error(string.format("%s at line %d col %d", msg, line_count, col_count))
+  error(string.format("JSON: %s at line %d col %d", msg, line_count, col_count))
 end
 
 
@@ -496,56 +514,55 @@ local function parse_unicode_escape(s)
   end
 end
 
-function parse_string0(tvbr, i, max_len)
+function parse_string0(tvbr, str, start, max_len)
   local res = ""
-  local str = tvbr:raw()
-  local j = i + 1
-  local k = j
+  local span = start + 1 -- eat initial "
+  local i = span
 
-  while j <= #str and (not max_len or #res + j - k < max_len) do
-    local x = str:byte(j)
+  while i <= #str do
+    local x = str:byte(i)
 
     if x < 32 then
-      decode_error(str, j, "control character in string")
+      decode_error(str, i, "control character in string")
     elseif x == 92 then -- `\`: Escape
-      res = res .. str:sub(k, j - 1)
-      j = j + 1
-      local c = str:sub(j, j)
+      res = res .. str:sub(span, i - 1)
+      i = i + 1
+      local c = str:sub(i, i)
       if c == "u" then
-        local hex = str:match("^[dD][89aAbB]%x%x\\u%x%x%x%x", j + 1)
-            or str:match("^%x%x%x%x", j + 1)
-            or decode_error(str, j - 1, "invalid unicode escape in string")
+        local hex = str:match("^[dD][89aAbB]%x%x\\u%x%x%x%x", i + 1)
+            or str:match("^%x%x%x%x", i + 1)
+            or decode_error(str, i - 1, "invalid unicode escape in string")
         res = res .. parse_unicode_escape(hex)
-        j = j + #hex
+        i = i + #hex
       else
         if not escape_chars[c] then
-          decode_error(str, j - 1, "invalid escape char '" .. c .. "' in string")
+          decode_error(str, i - 1, "invalid escape char '" .. c .. "' in string")
         end
         res = res .. escape_char_map_inv[c]
       end
-      k = j + 1
+      span = i + 1
     elseif x == 34 then -- `"`: End of string
-      res = res .. str:sub(k, j - 1)
-      return res, j + 1
-      --return String:new(tvbr(i - 1 + 1, j - i - 1), res), j + 1
+      res = res .. str:sub(span, i - 1)
+      return res, i + 1
     end
 
-    j = j + 1
-    if max_len and #res + j - k >= max_len then
-      return res .. str:sub(k, j - 1), j
+    if max_len and #res + (i - span + 1) >= max_len then
+      res = res .. str:sub(span, i)
+      return res, i + 2
     end
+
+    i = i + 1
   end
 
-  decode_error(str, i, "expected closing quote for string")
+  decode_error(str, start, "expected closing quote for string")
 end
 
-local function parse_string(tvbr, i, max_len)
-  local res, j = parse_string0(tvbr, i, max_len)
-  return String:new(tvbr(i - 1 + 1, j - i - 2), res), j
+local function parse_string(tvbr, str, i, max_len)
+  local res, j = parse_string0(tvbr, str, i, max_len)
+  return String:new(tvbr(i - 1, j - i), res), j
 end
 
-local function parse_number(tvbr, i)
-  local str = tvbr:raw()
+local function parse_number(tvbr, str, i)
   local x = next_char(str, i, delim_chars)
   local s = str:sub(i, x - 1)
   local n = tonumber(s)
@@ -556,8 +573,7 @@ local function parse_number(tvbr, i)
 end
 
 
-local function parse_literal(tvbr, i)
-  local str = tvbr:raw()
+local function parse_literal(tvbr, str, i)
   local x = next_char(str, i, delim_chars)
   local word = str:sub(i, x - 1)
   if not literals[word] then
@@ -568,9 +584,8 @@ end
 
 local parse
 
-local function parse_array(tvbr, start)
+local function parse_array(tvbr, str, start)
   local res = {}
-  local str = tvbr:raw()
   local n = 1
   local i = start
   i = i + 1
@@ -583,7 +598,7 @@ local function parse_array(tvbr, start)
       break
     end
     -- Read token
-    x, i = parse(tvbr, i)
+    x, i = parse(tvbr, str, i)
     res[n] = x
     n = n + 1
     -- Next token
@@ -597,40 +612,41 @@ local function parse_array(tvbr, start)
 end
 
 
-local function parse_object(tvbr, start)
+local function parse_object(tvbr, str, start)
   local res = {}
-  local str = tvbr:raw()
   local i = start
-  i = i + 1
+  i = i + 1 -- eat initial {
   while 1 do
     local key, val
     i = next_char(str, i, space_chars, true)
     -- Empty / end of object?
-    if str:sub(i, i) == "}" then
+    local ch = str:sub(i, i)
+    if ch == "}" then
       i = i + 1
       break
     end
     -- Read key
-    if str:sub(i, i) ~= '"' then
-      decode_error(str, i, "expected string for key")
+    if ch ~= '"' then
+      decode_error(str, i, "expected string for key, saw '" .. ch .. "'")
     end
-    key, i = parse(tvbr, i)
+    key, i = parse(tvbr, str, i)
     -- Read ':' delimiter
     i = next_char(str, i, space_chars, true)
-    if str:sub(i, i) ~= ":" then
-      decode_error(str, i, "expected ':' after key")
+    ch = str:sub(i, i)
+    if ch ~= ":" then
+      decode_error(str, i, "expected ':' after key, got " .. ch)
     end
     i = next_char(str, i + 1, space_chars, true)
     -- Read value
-    val, i = parse(tvbr, i)
+    val, i = parse(tvbr, str, i)
     -- Set
     res[key] = val
     -- Next token
     i = next_char(str, i, space_chars, true)
-    local chr = str:sub(i, i)
+    ch = str:sub(i, i)
     i = i + 1
-    if chr == "}" then break end
-    if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
+    if ch == "}" then break end
+    if ch ~= "," then decode_error(str, i, "expected '}' or ',', got " .. ch) end
   end
   return Object:new(tvbr(start - 1, i - start), res), i
 end
@@ -656,36 +672,39 @@ local char_func_map = {
   ["{"] = parse_object,
 }
 
-function parse(tvbr, idx)
-  local chr = tvbr(idx - 1, 1):raw()
+function parse(tvbr, str, idx)
+  local chr = str:sub(idx, idx)
   if chr == '' then
     decode_error(tvbr, idx, "unexpected end of input")
   end
   local f = char_func_map[chr]
   if f then
-    return f(tvbr, idx)
+    return f(tvbr, str, idx)
   end
-  decode_error(tvbr, idx, "unexpected character '" .. chr .. "'")
+  decode_error(str, idx, "unexpected character '" .. chr .. "'")
 end
 
 function jsond.decode(tvbr)
   local mt = getmetatable(tvbr)
   local ok
-  if mt then
-    if mt.__name == "Tvb" then
-      tvbr = tvbr()
-    elseif mt.__name == "TvbRange" then
-      ok = true
-    end
+  if mt and mt.__name == "Tvb" then
+    tvbr = tvbr()
+    ok = true
+  elseif mt and mt.__name == "TvbRange" then
+    ok = true
   end
   if not ok then
     error("expected Tvb or TvbRange, got " .. type(tvbr))
   end
+
+  -- It's going to be much more efficient to parse a string, so we
+  -- do this conversion once and pass both range and string around.
   local str = tvbr:raw()
-  local res, idx = parse(tvbr, next_char(str, 1, space_chars, true))
+
+  local res, idx = parse(tvbr, str, next_char(str, 1, space_chars, true))
   idx = next_char(str, idx, space_chars, true)
-  if idx <= tvbr:len() then
-    decode_error(tvbr, idx, "trailing garbage")
+  if idx <= #str then
+    decode_error(str, idx, "trailing garbage: " .. str:sub(idx))
   end
   return res
 end

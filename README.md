@@ -4,7 +4,9 @@ This is a Lua library that implements JSON decoding while preserving Wireshark T
 This allows you to use JSON fields as dissector fields, allowing the UI to maintain a reference to
 the original packet data.
 
-Status: This is under active development and unstable.
+Status:
+This is under active development and unstable.
+It's also nearly unacceptably slow and its value is questionable.
 
 # Usage
 
@@ -43,15 +45,20 @@ Returns a `Value` or raises an error.
 ```lua
 buf  = ByteArray.new("42", true):tvb()()
 data = jsond.decode(buf)  -- Number
-data:range() == buf(0, 2) -- true
-data:val()   == 42        -- true
+print(data:range() == buf(0, 2))
+print(type(data:val()), data:val())
+-- true
+-- number 42
 ```
 
 ```lua
 buf  = ByteArray.new("[42]", true):tvb()()
-data = jsond.decode(buf)     -- Array
-data[1]:range() == buf(1, 2) -- true
-data[1]:val()   == 42        -- true
+data = jsond.decode(buf)  -- Array
+elem = data[1]            -- Number
+print(elem:range() == buf(1, 2))
+print(type(elem:val()), elem:val())
+-- true
+-- number 42
 ```
 
 ### `jsond.range(data)`
@@ -63,7 +70,8 @@ Some classes also implement a `value:range()` method as a convenience.
 ```lua
 buf = ByteArray.new("42", true):tvb()()
 data = jsond.decode(buf)       -- Number
-jsond.range(data) == buf(0, 2) -- true
+print(jsond.range(data) == buf(0, 2))
+-- true
 ```
 
 ### `jsond.value(data)`
@@ -77,7 +85,8 @@ Note that the aggregated types `Array` and `Object` are represented by a Lua tab
 ```lua
 buf = ByteArray.new("42", true):tvb()()
 data = jsond.decode(buf)  -- Number
-jsond.value(data) == 42   -- true
+print(jsond.value(data) == 42)
+-- true
 ```
 
 ---
@@ -95,7 +104,8 @@ Most classes also implement a `value:nonzero()` method as a convenience, equival
 ```lua
 buf = ByteArray.new('""', true):tvb()()
 data = jsond.decode(buf)  -- String
-jsond.is_zero(data)       -- true
+print(jsond.is_zero(data))
+-- true
 ```
 
 ### `jsond.sorted(data [, comp])`
@@ -109,8 +119,8 @@ For an `Object`, the iterator yields keys and values, sorted by key.  If `comp` 
 ```lua
 buf = ByteArray.new('{"b": 2, "a": 1}', true):tvb()()
 data = jsond.decode(buf)  -- Object
-for k, v in jsond.sorted(data)
-  print(i, v)
+for k, v in jsond.sorted(data) do
+  print(k, v)
 end
 -- a 1
 -- b 2
@@ -119,7 +129,7 @@ end
 ```lua
 buf = ByteArray.new('["b", "a"]', true):tvb()()
 data = jsond.decode(buf)  -- Array
-for i, v in jsond.sorted(data)
+for i, v in jsond.sorted(data) do
   print(i, v)
 end
 -- 1 a
@@ -133,7 +143,7 @@ This will be one of "string", "number", "boolean", "array", "object", "null",
 or `nil` if data isn't a `Value`.
 
 ```lua
-buf = ByteArray("42"):tvb()()
+buf = ByteArray.new("42", true):tvb()()
 data = jsond.decode(buf)
 jsond.type(data)  -- "number"
 ```
@@ -202,8 +212,10 @@ A `BasicValue` has methods allowing for comparisons against other `BasicValues` 
 ```lua
 buf = ByteArray.new("42", true):tvb()()
 val = jsond.decode(buf)
-val == 42    -- false (val is a Value, not a number)
-val:eq(42)   -- true
+print(val == 42)  -- val is a Value, not a number
+print(val:eq(42))
+-- false
+-- true
 ```
 
 The following methods are implemented:
@@ -300,11 +312,13 @@ A `String` holds a string value.
 Returns one or more `Number` instances representing the Lua code point(s) for the character(s) at index `i` (defaults to 1) through `j`, similar to the standard `string.byte` function.
 
 ```lua
-buf = ByteArray.new('"foo"'):tvb()()
+buf = ByteArray.new('"abc"'):tvb()()
 s = jsond.decode(buf)
 b = s:byte(2)           -- Number
-b:range() == buf(1, 1)  -- true
-b:val()   == 111        -- true (ord("o"))
+print(b:range() == buf(2, 1))
+print(b:val())
+-- true
+-- 98
 ```
 
 #### `s:ether()`
@@ -336,8 +350,10 @@ inclusive, similar to Lua's standard string `:sub()` method.
 buf = ByteArray.new('"foobar"'):tvb()()
 s = jsond.decode(buf)
 b = s:sub(4, 6)         -- String
-b:range() == buf(4, 3)  -- true
-b:val()   == "bar"      -- true 
+print(b:range() == buf(4, 3))
+print(type(b:val()), b:val())
+-- true
+-- string bar
 ```
 
 #### `s:upper()`
@@ -406,8 +422,11 @@ Indexing supports indexing by `String`, or a Lua string.  These references are e
 
 ```lua
 buf = ByteArray.new('{"field": "value"}', true):tvb()()
-obj = json.decode(buf)      -- Object
-field = next(obj)[1]        -- String "field"
-obj[field] == obj["field"]  -- true
-obj[field] == obj.field     -- true
+obj = jsond.decode(buf)      -- Object
+for k, v in pairs(obj) do
+  print(obj[k] == obj["field"])
+  print(obj[k] == obj.field)
+end
+-- true
+-- true
 ```

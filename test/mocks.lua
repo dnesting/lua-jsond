@@ -6,14 +6,14 @@ mocks.ByteArray.__index = mocks.ByteArray
 mocks.ByteArray.__name = "ByteArray"
 
 function mocks.ByteArray.new(str, raw_bytes)
-    local self = setmetatable({}, ByteArray)
+    local self = setmetatable({}, mocks.ByteArray)
     self.data = str
     --print("mock: ByteArray.new(" .. str .. ")")
     return self
 end
 
 function mocks.ByteArray:tvb(name)
-    return Tvb.new(self.data, name)
+    return mocks.Tvb.new(self.data, name)
 end
 
 function mocks.ByteArray:__tostring()
@@ -54,7 +54,7 @@ mocks.TvbRange.__index = mocks.TvbRange
 mocks.TvbRange.__name = "TvbRange"
 
 function mocks.TvbRange.new(data, idx, size)
-    local self = setmetatable({}, TvbRange)
+    local self = setmetatable({}, mocks.TvbRange)
     --print("mock: TvbRange.new(" .. subdata .. ")")
     self.data = data
     self.idx = idx

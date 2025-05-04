@@ -38,17 +38,17 @@ local function test_string()
     local tvbr = make_tvb('"hello"')
     local val = jsond.decode(tvbr)
     assert_eq(val:val(), "hello", "Expected string value")
-    assert_eq(val:range():raw(), "hello", "Expected raw value")
+    assert_eq(val:range():raw(), '"hello"', "Expected raw value")
 
     tvbr = make_tvb('"hello\\nthere"')
     val = jsond.decode(tvbr)
     assert_eq(val:val(), "hello\nthere", "Expected string with newline")
-    assert_eq(val:range():raw(), "hello\\nthere", "Expected escaped newline")
+    assert_eq(val:range():raw(), '"hello\\nthere"', "Expected escaped newline")
 
     tvbr = make_tvb('""')
     val = jsond.decode(tvbr)
     assert_eq(val:val(), "", "Expected empty string value")
-    assert_eq(val:range():raw(), '', "Expected raw value for empty string")
+    assert_eq(val:range():raw(), '""', "Expected raw value for empty string")
 end
 
 local function test_literals()
@@ -123,20 +123,20 @@ local function test_object()
     assert_eq(r:raw(), '{"key1": "value1", "key2": "value2"}', "Expected raw value")
     local e = obj.key1
     assert_eq(e:val(), "value1", "Expected value for key1")
-    assert_eq(e:range():raw(), 'value1', "Expected raw value for key1")
+    assert_eq(e:range():raw(), '"value1"', "Expected raw value for key1")
     e = obj.key2
     assert_eq(e:val(), "value2", "Expected value for key2")
-    assert_eq(e:range():raw(), 'value2', "Expected raw value for key2")
+    assert_eq(e:range():raw(), '"value2"', "Expected raw value for key2")
     e = obj.key3
     assert_eq(e, nil, "Expected nil for non-existing key")
     assert_eq(obj.key3, nil, "Expected nil for non-existing key")
 
     e = obj["key1"]
     assert_eq(e:val(), "value1", "Expected value for key1")
-    assert_eq(e:range():raw(), 'value1', "Expected raw value for key1")
+    assert_eq(e:range():raw(), '"value1"', "Expected raw value for key1")
     e = obj["key2"]
     assert_eq(e:val(), "value2", "Expected value for key2")
-    assert_eq(e:range():raw(), 'value2', "Expected raw value for key2")
+    assert_eq(e:range():raw(), '"value2"', "Expected raw value for key2")
     e = obj["key3"]
     assert_eq(e, nil, "Expected nil for non-existing key")
     assert_eq(obj["key3"], nil, "Expected nil for non-existing key")
@@ -146,11 +146,11 @@ local function test_object()
         if k:val() == "key1" then
             found1 = true
             assert_eq(v:val(), "value1", "Expected value for key1")
-            assert_eq(v:range():raw(), 'value1', "Expected raw value for key1")
+            assert_eq(v:range():raw(), '"value1"', "Expected raw value for key1")
         elseif k:eq("key2") then
             found2 = true
             assert_eq(v:val(), "value2", "Expected value for key2")
-            assert_eq(v:range():raw(), 'value2', "Expected raw value for key2")
+            assert_eq(v:range():raw(), '"value2"', "Expected raw value for key2")
         else
             error("Unexpected key in object: " .. tostring(k))
         end
