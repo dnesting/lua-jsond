@@ -183,6 +183,17 @@ local function run_blocks(blocks, sandbox, verbose)
             print("PASS")
         else
             print("FAIL")
+            
+            if docrunner.retry_on_fail then
+                docrunner.before_retry()
+                ok, diff, err = run_and_verify(block, sandbox)
+                docrunner.after_retry()
+                if ok then
+                    print("PASS")
+                    goto continue
+                end
+            end
+            
             print()
             print("  " .. (err or "Output does not match:"))
             print()
@@ -203,6 +214,7 @@ local function run_blocks(blocks, sandbox, verbose)
         if verbose then
             print()
         end
+        ::continue::
     end
     if all_passed then
         print("PASS")
@@ -243,5 +255,9 @@ function docrunner.run_from_file(filename, sandbox)
 end
 
 docrunner.verbose = false
+docrunner.retry_on_fail = false
+docrunner.before_retry = function() end
+docrunner.after_retry = function() end
+docrunner.keep_going = false
 
 return docrunner

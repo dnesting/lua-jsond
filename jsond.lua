@@ -35,7 +35,37 @@
 --   -- equivalent to:
 --   tree:add(fields.my_field1, jsond.range(instance), jsond.value(instance))
 
-local jsond = { _version = "0.0.1" }
+-- DEBUGGING
+local debugging = false
+local debug_indent = 0
+local jsond = { _version = "0.0.1", debug_prefix = "" }
+
+function jsond.set_debug(enable)
+    debugging = enable
+    if enable then
+        log = _log
+    else
+        log = noop
+    end
+end
+
+local function noop(...) return ... end
+
+local function _log(fmt, ...)
+    local msg = string.format(fmt or "", ...)
+    local prefix = jsond.debug_prefix .. string.rep(". ", debug_indent)
+    print(prefix .. msg)
+end
+local log = noop
+
+local function _debug_in(msg)
+    log(msg .. " (")
+    debug_indent = debug_indent + 1
+    return function()
+        debug_indent = debug_indent - 1
+        log(")")
+    end
+end
 
 -- keys for range and value to avoid collisions in Object
 local RANGE = {}
