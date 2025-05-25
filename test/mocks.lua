@@ -1,6 +1,7 @@
 local mocks = {}
 
--- Mock ByteArray
+-- Mock some of the Wireshark Lua API types for testing.
+
 mocks.ByteArray = {}
 mocks.ByteArray.__index = mocks.ByteArray
 mocks.ByteArray.__name = "ByteArray"
@@ -77,12 +78,20 @@ function mocks.TvbRange:raw()
     return self.data:sub(self.idx + 1, self.idx + self.size)
 end
 
+function mocks.TvbRange:string()
+    return self.data:sub(self.idx + 1, self.idx + self.size)
+end
+
 function mocks.TvbRange:__tostring()
-    return "TvbRange(" .. self:raw() .. ")"
+    return "TvbRange(" .. self:string() .. ")"
 end
 
 function mocks.TvbRange:len()
     return self.size
+end
+
+function mocks.TvbRange:uint()
+    return self.data:byte(self.idx + 1)
 end
 
 return mocks

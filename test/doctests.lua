@@ -15,7 +15,7 @@
 
 local diff = require("test/diff")
 
-local docrunner = {}
+local doctests = {}
 
 local function get_blocks_from_lines(next_line, filename, start_line_num)
     local line = next_line()
@@ -61,7 +61,7 @@ local function get_blocks_from_lines(next_line, filename, start_line_num)
             block_start = num
         elseif line:sub(1, 1) == '#' then
             line = line:gsub("^#+%s*", "")
-            line = line:gsub("^`", ""):gsub("`$", "")
+            line = line:gsub("[`*_]", "")
             last_heading = line
         end
         line = next_line()
@@ -94,23 +94,21 @@ end
 
 local function fixup_error(err, filename, first_line)
     err = tostring(err)
-    local line = err:match("%(load%):(%d+)")
-    if line then
-        local line_num = tonumber(line)
-        if line_num then
-            local new_line = first_line + line_num - 1
-            err = err:gsub("%(load%):%d+", filename .. ":" .. new_line)
-        end
-    end
+    err = err:gsub("%(load%):(%d+)", function(num_str)
+        local line = tonumber(num_str)
+        assert(line)
+        local new_line = first_line + line - 1
+        return filename .. ":" .. new_line
+    end)
     return err
 end
 
-local function iter_lines(lines)
+local function iter_lines(lines, suffix)
     local i = 0
     return function()
         i = i + 1
         if lines[i] then
-            return lines[i] .. "\n"
+            return lines[i] .. (suffix or "")
         end
         return nil
     end
@@ -127,10 +125,10 @@ local function run_code(block, sandbox)
         end
         table.insert(output, table.concat(args, " "))
     end
-    local func, err = load(iter_lines(block.code_lines), nil, nil, sandbox)
+    local func, err = load(iter_lines(block.code_lines, "\n"), nil, nil, sandbox)
     if func then
         local status
-        status, err = pcall(func)
+        status, err = xpcall(func, debug.traceback)
         if status then
             return output
         end
@@ -147,9 +145,9 @@ local function run_and_verify(block, sandbox)
     if not actual then
         return false, nil, err
     end
-    local diff = diff(block.expected_lines, actual)
-    if diff then
-        return false, diff
+    local d = diff(block.expected_lines, actual)
+    if d then
+        return false, d
     end
     return true
 end
@@ -160,7 +158,7 @@ local function print_code(block, prefix)
     end
 end
 
-local function run_blocks(blocks, sandbox, verbose)
+local function run_blocks(blocks, sandbox, doctests)
     local all_passed = true
     for _, block in ipairs(blocks) do
         local context = block.filename .. ":" .. block.first_line
@@ -168,7 +166,7 @@ local function run_blocks(blocks, sandbox, verbose)
             context = context .. " (" .. block.heading .. ")"
         end
         io.write("Running example " .. context .. ": ")
-        if verbose then
+        if doctests.verbose then
             print()
             print()
             print_code(block, "  | ")
@@ -178,29 +176,58 @@ local function run_blocks(blocks, sandbox, verbose)
             end
             print()
         end
-        local ok, diff, err = run_and_verify(block, sandbox)
+        local ok, diffs, err = run_and_verify(block, sandbox)
         if ok then
             print("PASS")
         else
-            print("FAIL")
+            if doctests.retry_on_fail then
+                local r_ok, r_diffs, r_err
+                print("FAIL (retrying)")
+                if doctests.before_retry then
+                    doctests.before_retry()
+                end
+                r_ok, r_diffs, r_err = run_and_verify(block, sandbox)
+                if doctests.after_retry then
+                    doctests.after_retry()
+                end
+                if r_ok then
+                    print("FAIL, but PASSED on retry.  Diffs and errors below will be from the failed run.")
+                else
+                    print("FAIL")
+                    diffs = r_diffs
+                    err = r_err
+                end
+            else
+                print("FAIL")
+            end
             print()
-            print("  " .. (err or "Output does not match:"))
+            if not err then
+                err = "Output does not match:"
+            end
+            err = err:gsub("[^\n]+in function 'xpcall'.*", "")
+            err = err:gsub("\n$", "")
+            err = err:gsub("\n", "\n  ")
+
+            print("  " .. err)
             print()
 
-            if not verbose then
+            if not doctests.verbose then
                 print_code(block, "  | ")
                 print()
             end
 
             all_passed = false
-            if diff then
-                for _, line in ipairs(diff) do
+            if diffs then
+                for _, line in ipairs(diffs) do
                     print("  " .. line)
                 end
                 print()
             end
+            if not doctests.keep_going then
+                break
+            end
         end
-        if verbose then
+        if doctests.verbose then
             print()
         end
     end
@@ -224,24 +251,25 @@ local function splitlines(str)
     end
 end
 
-function docrunner.run_string(code, sandbox, filename, line_num)
+function doctests.run_string(code, sandbox, filename, line_num)
     code = "```lua\n" .. code .. "\n```"
     local blocks = get_blocks_from_lines(splitlines(code), filename, line_num)
     if not blocks then
         error("No code blocks found in string")
     end
-    return run_blocks(blocks, sandbox, docrunner.verbose)
+    return run_blocks(blocks, sandbox, doctests)
 end
 
-function docrunner.run_from_file(filename, sandbox)
+function doctests.run_from_file(filename, sandbox)
     local blocks = get_blocks_from_lines(io.lines(filename), filename)
     if not blocks then
         print("No code blocks found in " .. filename)
         return nil
     end
-    return run_blocks(blocks, sandbox, docrunner.verbose)
+    return run_blocks(blocks, sandbox, doctests)
 end
 
-docrunner.verbose = false
+doctests.keep_going = true
+doctests.verbose = false
 
-return docrunner
+return doctests

@@ -1,11 +1,11 @@
 -- This tests that all of the example code blocks in README.md
 -- run correctly and produce the expected output.
 
-local doctests   = require("test/doctests")
-local mocks      = require("test/mocks")
-local jsond      = require("jsond")
+local doctests         = require("test/doctests")
+local mocks            = require("test/mocks")
+local jsond            = require("jsond")
 
-local sandbox    = {
+local sandbox          = {
     ByteArray = mocks.ByteArray,
     Tvb       = mocks.Tvb,
     TvbRange  = mocks.TvbRange,
@@ -23,7 +23,18 @@ local sandbox    = {
     end,
 }
 
-doctests.verbose = false
+doctests.retry_on_fail = true
+doctests.before_retry  = function()
+    jsond.set_debug(true)
+    jsond.debug_prefix = "  "
+    print()
+end
+doctests.after_retry   = function()
+    jsond.set_debug(false)
+    print()
+end
+doctests.verbose       = false
+doctests.keep_going    = false
 
 if not doctests.run_from_file("README.md", sandbox) then
     os.exit(1)
